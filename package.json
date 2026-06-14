@@ -1,17 +1,25 @@
 {
   "name": "floridaant-raid",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Florida RP Anti-Raid + API Whitelist Discord",
+  "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js",
+    "test": "echo \"Sem testes configurados\""
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "discord",
+    "mta",
+    "florida-rp",
+    "whitelist",
+    "anti-raid"
+  ],
+  "author": "Florida RP",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
     "discord.js": "^14.26.4",
-    "dotenv": "^17.4.2"
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1"
   }
 }

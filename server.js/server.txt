@@ -1,0 +1,202 @@
+require("dotenv").config();
+
+const express = require("express");
+const fs = require("fs");
+const {
+  Client,
+  GatewayIntentBits,
+  REST,
+  Routes,
+  SlashCommandBuilder
+} = require("discord.js");
+
+const app = express();
+app.use(express.json());
+
+const TOKEN = process.env.TOKEN;
+const GUILD_ID = process.env.GUILD_ID;
+const PORT = process.env.PORT || 9595;
+
+const DB_FILE = "./database.json";
+
+function loadDB() {
+  if (!fs.existsSync(DB_FILE)) {
+    fs.writeFileSync(DB_FILE, JSON.stringify({
+      pendentes: [],
+      verificados: []
+    }, null, 2));
+  }
+
+  return JSON.parse(fs.readFileSync(DB_FILE, "utf8"));
+}
+
+function saveDB(db) {
+  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+}
+
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers
+  ]
+});
+
+client.once("ready", async () => {
+  console.log(`✅ Bot online como ${client.user.tag}`);
+
+  const commands = [
+    new SlashCommandBuilder()
+      .setName("verificar")
+      .setDescription("Verificar sua conta do MTA")
+      .addStringOption(option =>
+        option
+          .setName("codigo")
+          .setDescription("Código que apareceu no MTA")
+          .setRequired(true)
+      )
+      .toJSON()
+  ];
+
+  const rest = new REST({ version: "10" }).setToken(TOKEN);
+
+  await rest.put(
+    Routes.applicationGuildCommands(client.user.id, GUILD_ID),
+    { body: commands }
+  );
+
+  console.log("✅ Comando /verificar registrado.");
+});
+
+client.on("interactionCreate", async interaction => {
+  if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === "verificar") {
+    const codigo = interaction.options.getString("codigo").toUpperCase();
+
+    const db = loadDB();
+
+    const pendente = db.pendentes.find(p => p.code === codigo);
+
+    if (!pendente) {
+      return interaction.reply({
+        content: "❌ Código inválido ou expirado.",
+        ephemeral: true
+      });
+    }
+
+    const jaVerificado = db.verificados.find(v => v.account === pendente.account);
+
+    if (!jaVerificado) {
+      db.verificados.push({
+        account: pendente.account,
+        userid: interaction.user.id,
+        name: pendente.name
+      });
+    }
+
+    db.pendentes = db.pendentes.filter(p => p.code !== codigo);
+
+    saveDB(db);
+
+    await interaction.reply({
+      content: "✅ Você foi verificado com sucesso no Florida RP!",
+      ephemeral: true
+    });
+  }
+});
+
+// MTA verifica se a conta já está verificada
+app.post("/select/verificado", (req, res) => {
+  const { account } = req.body;
+
+  const db = loadDB();
+
+  const verificado = db.verificados.find(v => v.account === account);
+
+  if (verificado) {
+    return res.json({
+      userid: verificado.userid,
+      account: verificado.account
+    });
+  }
+
+  return res.json(false);
+});
+
+// MTA envia código para ser verificado
+app.post("/insert/serVerificado", (req, res) => {
+  const { account, code, name } = req.body;
+
+  if (!account || !code) {
+    return res.status(400).json({ error: "Dados inválidos" });
+  }
+
+  const db = loadDB();
+
+  db.pendentes = db.pendentes.filter(p => p.account !== account);
+
+  db.pendentes.push({
+    account,
+    code,
+    name: name || account
+  });
+
+  saveDB(db);
+
+  return res.json({
+    success: true,
+    message: "Código criado"
+  });
+});
+
+// MTA adiciona ou remove cargo no Discord
+app.post("/cargo/discord", async (req, res) => {
+  const { account, cargoid, type } = req.body;
+
+  try {
+    const guild = await client.guilds.fetch(GUILD_ID);
+    const member = await guild.members.fetch(account);
+
+    if (type === "add") {
+      await member.roles.add(cargoid);
+    }
+
+    if (type === "remove") {
+      await member.roles.remove(cargoid);
+    }
+
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      error: "Não foi possível alterar o cargo"
+    });
+  }
+});
+
+// MTA envia mensagem privada para usuário do Discord
+app.post("/send/message", async (req, res) => {
+  const { account, mensagem } = req.body;
+
+  try {
+    const user = await client.users.fetch(account);
+    await user.send(mensagem);
+
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      error: "Não foi possível enviar mensagem"
+    });
+  }
+});
+
+app.get("/", (req, res) => {
+  res.send("✅ API Florida RP online");
+});
+
+app.listen(PORT, () => {
+  console.log(`🌐 API rodando na porta ${PORT}`);
+});
+
+client.login(TOKEN);
